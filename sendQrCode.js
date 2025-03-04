@@ -95,7 +95,7 @@ async function sendEmail(email, username, qrCodePath) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Your E-Ticket for Aarambh, 2024</title>
+    <title>Your E-Ticket for Vishwaayan, 2025</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -173,76 +173,58 @@ async function sendEmail(email, username, qrCodePath) {
             margin-left: 20px;
             padding-left: 0;
         }
-        .region {
+        .event-image {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .event-image img {
+            max-width: 100%;
+            height: auto;
+        }
+        .day-highlight {
             font-weight: bold;
             color: #005f9e;
-        }
-        .department {
-            margin-left: 10px;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>Aarambh, 2024</h1>
+            <h1>Vishwaayan, 2025</h1>
             <p>Your Official E-Ticket</p>
         </div>
 
         <p>Dear <strong>${username}</strong>,</p>
 
-        <p>Thank you for registering for Aarambh, 2024! We are excited to have you join us for this special event. Please find your e-ticket below, which includes a QR code required for entry. <strong>Please note the QR is viable for a single scan only.</strong></p>
+        <p>Thank you for registering for Vishwaayan 2025! We are thrilled to have you join us for this special celebration. Please find your e-ticket attached, including QR codes required for entry. Kindly note that the QR code is valid for a single scan only, meaning re-entry will not be permitted once you exit the premises.</p>
 
-        <p>Keeping this in mind, please note that the Student entering the premises of Building 1 will not be able to enter again if the Student has to take an exit from the Premises for any reason.</p>
-
-        <div class="event-details">
-            <h3>📅 Event Details:</h3>
-            <p><strong>Event Date:</strong> 27th Sep, 2024</p>
-            <p><strong>Entry Start Time:</strong> 12:30 PM</p>
-            <p><strong>Final Entry Time:</strong> 04:00 PM (entries will be closed after this)</p>
-            <p><strong>Venue:</strong> Behind Eco Campus, Vishwakarma University, Pune</p>
-            <p><em>The detailed programme schedule has been attached to this email.</em></p>
-        </div>
+        <p>The detailed programme schedule is also attached for your reference.</p>
 
         <div class="important-info">
             <h3>⚠️ Important Information:</h3>
             <ul>
-                <li>Your QR Code is valid for a single scan only. Once scanned, re-entry will not be permitted.</li>
-                <li>Please arrive on time, as entry closes at 4:00 PM. After this time, no further entry will be allowed, and no exceptions will be made.</li>
-                <li>You must present both your ID card and the attached QR code at the entrance for a smooth check-in process.</li>
-                <li><strong>Note:</strong> Get your self-declaration form printed and it is compulsory for all students. Without it, entry will not be permitted.</li>
+                <li><strong>QR Code Validity:</strong> Your QR code is valid for a single scan only. If you exit the premises, you will not be allowed to re-enter.</li>
+                <li><strong>Entry Guidelines:</strong> Please ensure you arrive on time.</li>
+                <li><strong>Mandatory Documents:</strong> You must present both your ID card and QR code at the entrance for a smooth check-in process.</li>
+                <li><strong>Self-Declaration Form:</strong> It is compulsory to carry a printed self-declaration form for entry. Without it, entry will not be permitted.</li>
             </ul>
         </div>
 
         <div class="dress-code">
-            <h3>👗 Dress code for Aarambh:</h3>
-            <p>Please follow the following for the dress code according to your respective departments:</p>
-
-            <p class="region">NORTH - (Jammu & Kashmir, Himachal Pradesh, Punjab, Uttarakhand, Haryana, Delhi, Uttar Pradesh and UT Chandigarh)</p>
-            <p class="department">• Humanities and Social Sciences</p>
-            <p class="department">• Media and Communication</p>
-
-            <p class="region">SOUTH - (Andhra Pradesh, Karnataka, Kerala, Tamil Nadu, and Telangana)</p>
-            <p class="department">• Commerce and Management</p>
-            <p class="department">• Art and Design</p>
-
-            <p class="region">EAST - (Bihar, Jharkhand, Odisha and West Bengal, Mizoram, Sikkim, Chhattisgarh, Assam, Meghalaya, Tripura)</p>
-            <p class="department">• Pharmacy</p>
-            <p class="department">• Science and Technology</p>
-
-            <p class="region">WEST - (Maharashtra, Goa, Gujarat, Rajasthan, Daman & Diu)</p>
-            <p class="department">• Interdisciplinary studies</p>
-            <p class="department">• Architecture</p>
-            <p class="department">• Law</p>
-
-            <p><em>Examples for the above have been attached with this email.</em></p>
-
-            <p>If, for some reason, you are unable to follow the dress code, please wear decent Ethnic Wear.</p>
-
-            <p><strong>If anyone does not follow the above guidelines, they will not be permitted to enter the premises of the event.</strong></p>
+            <h3>👗 Dress Code for Vishwaayan:</h3>
+            
+            <p class="day-highlight">For Day 3 - "Tapestry of India"</p>
+            <p>Participants are expected to wear Sarees & Kurtas, celebrating the culture of India.</p>
+            
+            <p class="day-highlight">For Day 4 - "The Grand Gala"</p>
+            <p>The dress code is Suits & Gowns, embracing elegance and sophistication.</p>
+            
+            <p><strong>If, for any reason, you are unable to follow the dress code, decent wear is required. Entry will be denied to those who do not comply.</strong></p>
         </div>
 
-        <p>Aarambh promises an unforgettable day filled with creativity, talent, and fun. We look forward to celebrating with you and the entire Vishwakarma University community.</p>
+        <p>We can't wait to celebrate with you at Vishwaayan 2025! Get ready for an unforgettable experience filled with creativity, talent, and excitement.</p>
+
+        <p><strong>See you there!</strong></p>
 
         <div class="contact">
             <h3>📞 Contact Information:</h3>
@@ -251,12 +233,6 @@ async function sendEmail(email, username, qrCodePath) {
             <p><strong>Vidhi Bafna:</strong> 9172463623</p>
             <p><strong>Dhruv Nahar:</strong> 9112424754</p>
         </div>
-
-        <p><strong>Please note that seating for the event will be done on "First Come First Serve Basis" and priority will be given to First Year students and Direct Second Year Students.</strong></p>
-
-        <p>Please also note that you need to carry the duly filled self-declaration form on the day of the event.</p>
-
-        <p>Don't miss the excitement of Aarambh. We can't wait to see you there!</p>
 
         <div class="warning">
             <h3>⚠️ Important Note:</h3>
@@ -285,67 +261,37 @@ async function sendEmail(email, username, qrCodePath) {
     // Keep the text version for email clients that don't support HTML
     const emailContentText = `Dear ${username},
 
-Thank you for registering for Aarambh, 2024! We are excited to have you join us for this special event. Please find your e-ticket below, which includes a QR code required for entry. Please note the QR is viable for a single scan only.
+Thank you for registering for Vishwaayan 2025! We are thrilled to have you join us for this special celebration.
+Please find your e-ticket attached, including QR codes required for entry. Kindly note that the QR code is valid for a single scan only, meaning re-entry will not be permitted once you exit the premises.
 
-Keeping this in mind, please note that the Student entering the premises of Building 1 will not be able to enter again if the Student has to take an exit from the Premises for any reason.
+The detailed programme schedule is also attached for your reference.
 
-Event Details:
-Event Date: 27th Sep, 2024
-Entry Start Time: 12:30 PM
-Final Entry Time: 04:00 PM (entries will be closed after this)
-Venue: Behind Eco Campus, Vishwakarma University, Pune
+Important Information: 
 
-The detailed programme schedule has been attached to this email.
+QR Code Validity: Your QR code is valid for a single scan only. If you exit the premises, you will not be allowed to re-enter.
+Entry Guidelines: Please ensure you arrive on time.
+Mandatory Documents: You must present both your ID card and QR code at the entrance for a smooth check-in process.
+Self-Declaration Form: It is compulsory to carry a printed self-declaration form for entry. Without it, entry will not be permitted.
 
-Important Information:
-- Your QR Code is valid for a single scan only. Once scanned, re-entry will not be permitted.
-- Please arrive on time, as entry closes at 4:00 PM. After this time, no further entry will be allowed, and no exceptions will be made.
-- You must present both your ID card and the attached QR code at the entrance for a smooth check-in process.
-- Note: Get your self-declaration form printed and it is compulsory for all students. Without it, entry will not be permitted.
+Dress Code for Vishwaayan:
 
-Dress code for Aarambh:
-Please follow the following for the dress code according to your respective departments:
+For Day 3 - "Tapestry of India", participants are expected to wear Sarees & Kurtas, celebrating the culture of India.
 
-NORTH - (Jammu & Kashmir, Himachal Pradesh, Punjab, Uttarakhand, Haryana, Delhi, Uttar Pradesh and UT Chandigarh)
-*Humanities and Social Sciences
-*Media and Communication
+For Day 4 - "The Grand Gala", the dress code is Suits & Gowns, embracing elegance and sophistication.
 
-SOUTH - (Andhra Pradesh, Karnataka, Kerala, Tamil Nadu, and Telangana)
-*Commerce and Management
-*Art and Design
+If, for any reason, you are unable to follow the dress code, decent wear is required. Entry will be denied to those who do not comply.
 
-EAST - (Bihar, Jharkhand, Odisha and West Bengal, Mizoram, Sikkim, Chhattisgarh, Assam, Meghalaya, Tripura)
-*Pharmacy
-*Science and Technology
+We can't wait to celebrate with you at Vishwaayan 2025! Get ready for an unforgettable experience filled with creativity, talent, and excitement.
 
-WEST - (Maharashtra, Goa, Gujarat, Rajasthan, Daman & Diu)
-*Interdisciplinary studies
-*Architecture
-*Law
-
-Examples for the above have been attached with this email.
-
-If, for some reason, you are unable to follow the dress code, please wear decent Ethnic Wear.
-
-If anyone does not follow the above guidelines, they will not be permitted to enter the premises of the event.
-
-Aarambh promises an unforgettable day filled with creativity, talent, and fun. We look forward to celebrating with you and the entire Vishwakarma University community.
+See you there!
 
 If you have any questions, please contact us at:
-
 Pratik Pawar : 9552524565
 Vidhi Bafna : 9172463623
 Dhruv Nahar : 9112424754
 
-Please note that seating for the event will be done on "First Come First Serve Basis" and priority will be given to First Year students and Direct Second Year Students.
-
-Please also note that you need to carry the duly filled self-declaration form on the day of the event.
-
-Don't miss the excitement of Aarambh. We can't wait to see you there!
-
 Important Note:
 Students are reminded to refrain from engaging in Violence, Non-cooperation with authorities including organizers, use or the consumption of illicit substances, sloganeering, making sexist comments, or engaging in behaviour that may hurt religious sentiments, disrupt campus discipline, or create excessive noise with vehicles, speakers or any kind of devices in the University campus. Strict disciplinary actions thereby involving the respective department's HoDs will be taken against those found violating these guidelines.
-
 
 Thanks and Regards,
 
@@ -359,22 +305,39 @@ Kondhwa (Bk.) Pune 411048`;
     const mailOptions = {
         from: EMAIL_CONFIG.auth.user,
         to: email,
-        subject: 'Your E-Ticket for Aarambh, 2024',
+        subject: 'Your E-Ticket for Vishwaayan, 2025',
         text: emailContentText,
         html: emailContentHtml, // Add the HTML version
         attachments: [
             {
-                filename: 'aarambh_ticket.png',
+                filename: 'vishwaayan_ticket.png',
                 path: qrCodePath
             },
             {
-                filename: 'signature1.jpg',
-                path: './signature1.jpg', // Path to your first signature image
+                filename: 'Day_3_&_4.jpeg', // Event banner image
+                path: './Day_3_&_4.jpeg',
+                cid: 'Day_3_&_4'
+            },
+            {
+                filename: 'self_declaration.pdf', // Program schedule PDF
+                path: './self_declaration.pdf'
+            },
+            {
+                filename: 'theme_wise_outfits.docx', // Self-declaration form
+                path: './theme_wise_outfits.docx'
+            },
+            {
+                filename: 'Vishwayan Terms_and_Conditions.docx', // Additional information document
+                path: './Vishwayan Terms_and_Conditions.docx'
+            },
+            {
+                filename: 'signature1.jpg', // Path to your first signature image
+                path: './signature1.jpg',
                 cid: 'signature1' // Content ID for referencing in the HTML
             },
             {
-                filename: 'signature2.jpg',
-                path: './signature2.jpg', // Path to your second signature image
+                filename: 'signature2.jpg', // Path to your second signature image
+                path: './signature2.jpg', 
                 cid: 'signature2' // Content ID for referencing in the HTML
             }
         ]

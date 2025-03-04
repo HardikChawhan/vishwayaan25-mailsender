@@ -1,4 +1,4 @@
-email,username,prn,phone_no,Faculty,Department,Year,statusday1,statusday2,statusfood
-31231999@vupune.ac.in,Hardik Chawhan,3123033010693.00,9322762657,Science and Technology,Computer Engineering,Second Year(SY),Active,Active,	Active
-31230833@vupune.ac.in,Rohan Iyengar,3123034010332.00,8262895981,Science and Technology,Computer Engineering,Second Year(SY),Active,Active,Active
-31231313@vupune.ac.in,Paritosh Kolwadkar,3123035010547.00,9356767388,Science and Technology,Computer Engineering,Second Year(SY),Active,	Active,Active
+email,username,prn,phone_no,Faculty,Department,Year
+31231999@vupune.ac.in,Hardik Chawhan,3123033010693.00,9322762657,Science and Technology,Computer Engineering,Second Year(SY)
+31230833@vupune.ac.in,Rohan Iyengar,3123034010332.00,8262895981,Science and Technology,Computer Engineering,Second Year(SY)
+31231313@vupune.ac.in,Paritosh Kolwadkar,3123035010547.00,9356767388,Science and Technology,Computer Engineering,Second Year(SY)
