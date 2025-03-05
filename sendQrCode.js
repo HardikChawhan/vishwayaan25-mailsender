@@ -14,7 +14,11 @@ const EMAIL_CONFIG = {
     auth: {
         user: process.env.EMAIL_USER, // Get email from .env
         pass: process.env.EMAIL_PASS  // Get password from .env
-    }
+    },
+    // Add these rate limiting settings
+    pool: true,
+    maxConnections: 1,
+    maxMessages: Infinity // Reuse the same connection for all messages
 };
 
 // Default encryption key and IV if not provided in .env
@@ -29,6 +33,26 @@ if (!fs.existsSync(QR_CODE_DIR)) {
 // Setup email transporter
 const transporter = nodemailer.createTransport(EMAIL_CONFIG);
 
+// Verify and establish a single persistent connection
+async function setupEmailConnection() {
+    console.log("Setting up email connection...");
+    try {
+        // Verify the connection configuration
+        await transporter.verify();
+        console.log("Email server connection established.");
+        
+        // Keep connection alive by pinging occasionally
+        setInterval(() => {
+            transporter.verify()
+                .then(() => console.log("Connection maintained"))
+                .catch(err => console.error("Connection check failed:", err));
+        }, 300000); // Check every 5 minutes
+    } catch (error) {
+        console.error("Failed to set up email connection:", error);
+        throw error;
+    }
+}
+
 // Encryption function (AES-128)
 function encryptData(data) {
     const cipher = crypto.createCipheriv('aes-128-cbc', 
@@ -40,39 +64,116 @@ function encryptData(data) {
     return encrypted;
 }
 
-// Process each row in the CSV
-function processCSV() {
-    const results = [];
+// Add this helper function
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// 1. Pre-generate all QR codes in a separate phase
+async function preGenerateQRCodes(rows) {
+    console.log("Pre-generating QR codes for all users...");
+    let generated = 0;
     
-    fs.createReadStream(CSV_FILE_PATH)
-        .pipe(csv())
-        .on('data', async (row) => {
+    for (const row of rows) {
+        const userEmail = row.email;
+        const qrCodePath = path.join(QR_CODE_DIR, `${userEmail}.png`);
+        
+        if (!fs.existsSync(qrCodePath)) {
+            const userData = JSON.stringify(row);
+            const encryptedData = encryptData(userData);
+            await generateQRCode(encryptedData, qrCodePath);
+            generated++;
+        }
+    }
+    
+    console.log(`Pre-generated ${generated} QR codes. Starting email sending...`);
+    return true;
+}
+
+// 2. Modified processCSV to use pre-generation
+async function processCSV() {
+    // Establish connection first
+    await setupEmailConnection();
+    
+    const rows = [];
+    
+    // Read all rows into memory
+    await new Promise((resolve) => {
+        fs.createReadStream(CSV_FILE_PATH)
+            .pipe(csv())
+            .on('data', (row) => rows.push(row))
+            .on('end', resolve);
+    });
+    
+    console.log(`Read ${rows.length} rows from CSV.`);
+    
+    // Pre-generate all QR codes first
+    await preGenerateQRCodes(rows);
+    
+    // Now process emails in batches
+    const batchSize = 5;
+    
+    for (let i = 0; i < rows.length; i += batchSize) {
+        const batch = rows.slice(i, i + batchSize);
+        console.log(`Processing batch ${Math.floor(i/batchSize) + 1} of ${Math.ceil(rows.length/batchSize)}...`);
+        
+        // Process each user in the batch
+        for (const row of batch) {
             try {
-                // Store the email for file naming
                 const userEmail = row.email;
                 const username = row.username;
                 
-                // Convert row to JSON string
-                const userData = JSON.stringify(row);
-                
-                // Encrypt the data
-                const encryptedData = encryptData(userData);
-                
-                // Generate QR code and save to file
+                // Check if QR code already exists to avoid regeneration
                 const qrCodePath = path.join(QR_CODE_DIR, `${userEmail}.png`);
-                await generateQRCode(encryptedData, qrCodePath);
+                if (!fs.existsSync(qrCodePath)) {
+                    const userData = JSON.stringify(row);
+                    const encryptedData = encryptData(userData);
+                    await generateQRCode(encryptedData, qrCodePath);
+                }
                 
-                // Send email with QR code
-                await sendEmail(userEmail, username, qrCodePath);
-                
+                // Send email with exponential backoff retry
+                await sendEmailWithRetry(userEmail, username, qrCodePath);
                 console.log(`Processed ${userEmail} successfully.`);
+                
+                // After each email, add a small delay
+                console.log(`Waiting 2 seconds before next email...`);
+                await sleep(2000); // Reduce from 5 to 2 seconds
             } catch (error) {
                 console.error(`Error processing row: ${JSON.stringify(row)}`, error);
             }
-        })
-        .on('end', () => {
-            console.log('CSV processing completed.');
-        });
+        }
+        
+        // Add significant delay between batches
+        if (i + batchSize < rows.length) {
+            const delaySeconds = 15; // Reduce from 30 to 15 seconds
+            console.log(`Waiting ${delaySeconds} seconds before next batch...`);
+            await sleep(delaySeconds * 1000);
+        }
+    }
+    
+    console.log('CSV processing completed.');
+}
+
+// Add this retry function for email sending
+async function sendEmailWithRetry(email, username, qrCodePath, maxRetries = 5) {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            await sendEmail(email, username, qrCodePath);
+            return; // Success! Exit the retry loop
+        } catch (error) {
+            if (error.code === 'EAUTH' || 
+                error.responseCode === 454 || 
+                error.responseCode === 421 || 
+                (error.response && error.response.includes('Too many login attempts'))) {
+                
+                const delaySeconds = Math.pow(2, attempt + 1) * 30; // Exponential backoff
+                console.log(`Gmail rate limit hit. Retrying ${email} in ${delaySeconds} seconds... (Attempt ${attempt + 1}/${maxRetries})`);
+                await sleep(delaySeconds * 1000);
+            } else {
+                // For other errors, don't retry
+                throw error;
+            }
+        }
+    }
+    throw new Error(`Failed to send email to ${email} after ${maxRetries} retries`);
 }
 
 // Generate QR Code
@@ -86,7 +187,7 @@ async function generateQRCode(data, filePath) {
     }
 }
 
-// Send Email with QR Code attachment
+// Modify your sendEmail function
 async function sendEmail(email, username, qrCodePath) {
     // HTML version of the email
     const emailContentHtml = `
@@ -220,6 +321,9 @@ async function sendEmail(email, username, qrCodePath) {
             <p>The dress code is Suits & Gowns, embracing elegance and sophistication.</p>
             
             <p><strong>If, for any reason, you are unable to follow the dress code, decent wear is required. Entry will be denied to those who do not comply.</strong></p>
+            <p><strong>Everyone to comply with the guidelines attached herewith</strong></p>
+
+            <a href="https://docs.google.com/document/d/11S-lgVDa6SaTTWzVucVcl3sBfSGBAqFm/edit?usp=sharing&ouid=100602248617527026238&rtpof=true&sd=true" v>Attire Guidelines</a>
         </div>
 
         <p>We can't wait to celebrate with you at Vishwaayan 2025! Get ready for an unforgettable experience filled with creativity, talent, and excitement.</p>
@@ -247,7 +351,7 @@ async function sendEmail(email, username, qrCodePath) {
             </div>
             <p>
                 <strong>Student Council &<br>
-                Student Welfare</strong><br>
+                Sports Council</strong><br>
                 Vishwakarma University,<br>
                 Survey No 2,3,4 Laxmi Nagar,<br>
                 Kondhwa (Bk.) Pune 411048
@@ -307,28 +411,19 @@ Kondhwa (Bk.) Pune 411048`;
         to: email,
         subject: 'Your E-Ticket for Vishwaayan, 2025',
         text: emailContentText,
-        html: emailContentHtml, // Add the HTML version
+        html: emailContentHtml,
         attachments: [
             {
                 filename: 'vishwaayan_ticket.png',
                 path: qrCodePath
             },
             {
-                filename: 'Day_3_&_4.jpeg', // Event banner image
-                path: './Day_3_&_4.jpeg',
-                cid: 'Day_3_&_4'
-            },
-            {
-                filename: 'self_declaration.pdf', // Program schedule PDF
-                path: './self_declaration.pdf'
+                filename: 'Slider_Post_for_Vishwaayan_2025.pdf', // Program schedule PDF
+                path: './Slider_Post_for_Vishwaayan_2025.pdf'
             },
             {
                 filename: 'theme_wise_outfits.docx', // Self-declaration form
                 path: './theme_wise_outfits.docx'
-            },
-            {
-                filename: 'Vishwayan Terms_and_Conditions.docx', // Additional information document
-                path: './Vishwayan Terms_and_Conditions.docx'
             },
             {
                 filename: 'signature1.jpg', // Path to your first signature image
@@ -344,8 +439,37 @@ Kondhwa (Bk.) Pune 411048`;
     };
 
     try {
-        const info = await transporter.sendMail(mailOptions);
-        console.log(`Email sent to ${email}: ${info.messageId}`);
+        // Check if files exist before sending
+        const attachmentPaths = [
+            qrCodePath,
+            './Slider_Post_for_Vishwaayan_2025.pdf',
+            './theme_wise_outfits.docx',
+            './signature1.jpg',
+            './signature2.jpg'
+        ];
+        
+        for (const filePath of attachmentPaths) {
+            if (!fs.existsSync(filePath)) {
+                throw new Error(`Attachment file missing: ${filePath}`);
+            }
+        }
+        
+        // Send email with promise and proper error handling
+        const info = await new Promise((resolve, reject) => {
+            transporter.sendMail(mailOptions, (error, info) => {
+                if (error) {
+                    reject(error);
+                } else if (!info) {
+                    reject(new Error("No response from mail server"));
+                } else {
+                    resolve(info);
+                }
+            });
+        });
+        
+        // Now info should never be undefined if we get here
+        console.log(`Email sent to ${email}: ${info.messageId || 'No message ID returned'}`);
+        return info;
     } catch (error) {
         console.error(`Email sending error for ${email}:`, error);
         throw error;
