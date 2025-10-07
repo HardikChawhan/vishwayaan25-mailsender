@@ -1,0 +1,83 @@
+function sendBulkEmails() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Students with QR Codes");
+  const data = sheet.getDataRange().getValues();
+
+  // File IDs (your provided ones)
+  const signature1Id = "1VD1XfL_ybai-8wQO9piKLjRJgg9aWUlp";
+  const signature2Id = "1RModEwBSW-aqIqZuTi69wq-GGvDGCEuc";
+  const posterId = "1HjTxv8WdKL99HrheInQTKdmqRGZhh6MP";
+  const attireGuidelinesLink = "https://drive.google.com/file/d/1ApFX6WGTYv-m9N7UqzBLUScyduiHmdjz/view?usp=drive_link";
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const email = row[0];
+    const name = row[1];
+    const status = row[7];
+    const qrCodeBlob = getImageBlobFromCell(sheet, i + 1, 9); // column I = QR Code
+
+    // Send only to ACTIVE students
+    if (email && status === "ACTIVE") {
+      const subject = `Important Notice from Student Council`;
+
+      // HTML Email Body
+      const htmlBody = `
+        <div style="font-family: 'Poppins', sans-serif; color: #222; line-height: 1.6; font-size: 15px;">
+          <p>Dear ${name},</p>
+          <p>Greetings from the <b>Student Council</b>!</p>
+          <p>This email contains your personalized <b>QR code</b> attached below. Please ensure to carry it with you during the event.</p>
+          <p>You can also review the <a href="${attireGuidelinesLink}" target="_blank" style="color:#1a73e8; text-decoration:none;">attire guidelines here</a>.</p>
+          <br>
+          <p>Best regards,<br><b>Student Council</b><br>Vishwakarma University</p>
+          <br>
+          <img src="cid:signature1" width="250"><br>
+          <img src="cid:signature2" width="250">
+        </div>
+      `;
+
+      // Attachments: QR + Poster
+      const attachments = [];
+      if (qrCodeBlob) attachments.push(qrCodeBlob);
+      attachments.push(DriveApp.getFileById(posterId).getAs(MimeType.PDF));
+
+      // Inline images (signatures)
+      const inlineImages = {
+        signature1: DriveApp.getFileById(signature1Id).getBlob(),
+        signature2: DriveApp.getFileById(signature2Id).getBlob()
+      };
+
+      // Send email
+      GmailApp.sendEmail(email, subject, '', {
+        htmlBody: htmlBody,
+        inlineImages: inlineImages,
+        attachments: attachments
+      });
+    }
+  }
+}
+
+/**
+ * Helper function to extract QR code image blob from a cell.
+ * If your QR codes are inserted as IMAGE() formula or linked URLs.
+ */
+function getImageBlobFromCell(sheet, row, col) {
+  try {
+    const range = sheet.getRange(row, col);
+    const formula = range.getFormula();
+
+    // Case 1: If cell uses =IMAGE("URL")
+    if (formula && formula.startsWith('=IMAGE("')) {
+      const url = formula.match(/=IMAGE\("([^"]+)"/)[1];
+      return UrlFetchApp.fetch(url).getBlob().setName("QRCode.png");
+    }
+
+    // Case 2: If RichText or link
+    const link = range.getRichTextValue()?.getLinkUrl();
+    if (link) {
+      return UrlFetchApp.fetch(link).getBlob().setName("QRCode.png");
+    }
+
+  } catch (e) {
+    Logger.log(`Error fetching QR for row ${row}: ${e}`);
+  }
+  return null;
+}

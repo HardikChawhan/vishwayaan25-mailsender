@@ -9,49 +9,67 @@ require('dotenv').config(); // Add dotenv for environment variables
 // Configuration
 const CSV_FILE_PATH = './data.csv';
 const QR_CODE_DIR = './images';
+const LOGS_DIR = './logs';
+
+// Optimized settings for 1200 emails in ~1 hour
+const BATCH_SIZE = 10; // Send 10 emails simultaneously
+const RETRY_ATTEMPTS = 3; // Retry failed emails 3 times
+const RETRY_DELAY = 5000; // 5 seconds between retries
+const BATCH_DELAY = 3000; // 3 seconds between batches
+
 const EMAIL_CONFIG = {
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
     auth: {
-        user: process.env.EMAIL_USER, // Get email from .env
-        pass: process.env.EMAIL_PASS  // Get password from .env
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
     },
-    // Add these rate limiting settings
-    pool: true,
-    maxConnections: 1,
-    maxMessages: Infinity // Reuse the same connection for all messages
+    pool: true, // Use pooled connections
+    maxConnections: 5, // Max simultaneous connections
+    maxMessages: 100 // Max messages per connection
 };
 
 // Default encryption key and IV if not provided in .env
-const ENCRYPTION_KEY = process.env.AES_KEY;// Default key if not in .env
-const ENCRYPTION_IV = process.env.AES_IV;   // Default IV if not in .env
+const ENCRYPTION_KEY = process.env.AES_KEY;
+const ENCRYPTION_IV = process.env.AES_IV;
 
-// Create images directory if it doesn't exist
+// Create directories if they don't exist
 if (!fs.existsSync(QR_CODE_DIR)) {
     fs.mkdirSync(QR_CODE_DIR, { recursive: true });
 }
 
-// Setup email transporter
-const transporter = nodemailer.createTransport(EMAIL_CONFIG);
+if (!fs.existsSync(LOGS_DIR)) {
+    fs.mkdirSync(LOGS_DIR, { recursive: true });
+}
 
-// Verify and establish a single persistent connection
-async function setupEmailConnection() {
-    console.log("Setting up email connection...");
+// Setup email transporter (singleton pattern)
+let transporter = null;
+
+function getTransporter() {
+    if (!transporter) {
+        transporter = nodemailer.createTransport(EMAIL_CONFIG);
+    }
+    return transporter;
+}
+
+// Verify SMTP connection before starting
+async function verifyConnection() {
     try {
-        // Verify the connection configuration
-        await transporter.verify();
-        console.log("Email server connection established.");
-        
-        // Keep connection alive by pinging occasionally
-        setInterval(() => {
-            transporter.verify()
-                .then(() => console.log("Connection maintained"))
-                .catch(err => console.error("Connection check failed:", err));
-        }, 300000); // Check every 5 minutes
-    } catch (error) {
-        console.error("Failed to set up email connection:", error);
-        throw error;
+        const transport = getTransporter();
+        await transport.verify();
+        console.log('✅ SMTP connection verified successfully\n');
+        return true;
+    } catch (err) {
+        console.error('❌ SMTP connection error:', err.message);
+        console.error('\nPlease check your .env file and ensure:');
+        console.error('- EMAIL_USER is set correctly');
+        console.error('- EMAIL_PASS is a valid Gmail App Password');
+        console.error('- Your Gmail account has 2FA enabled and App Passwords configured\n');
+        return false;
     }
 }
+
 
 // Encryption function (AES-128)
 function encryptData(data) {
@@ -64,131 +82,25 @@ function encryptData(data) {
     return encrypted;
 }
 
-// Add this helper function
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-// 1. Pre-generate all QR codes in a separate phase
-async function preGenerateQRCodes(rows) {
-    console.log("Pre-generating QR codes for all users...");
-    let generated = 0;
-    
-    for (const row of rows) {
-        const userEmail = row.email;
-        const qrCodePath = path.join(QR_CODE_DIR, `${userEmail}.png`);
-        
-        if (!fs.existsSync(qrCodePath)) {
-            const userData = JSON.stringify(row);
-            const encryptedData = encryptData(userData);
-            await generateQRCode(encryptedData, qrCodePath);
-            generated++;
-        }
-    }
-    
-    console.log(`Pre-generated ${generated} QR codes. Starting email sending...`);
-    return true;
-}
-
-// 2. Modified processCSV to use pre-generation
-async function processCSV() {
-    // Establish connection first
-    await setupEmailConnection();
-    
-    const rows = [];
-    
-    // Read all rows into memory
-    await new Promise((resolve) => {
-        fs.createReadStream(CSV_FILE_PATH)
-            .pipe(csv())
-            .on('data', (row) => rows.push(row))
-            .on('end', resolve);
-    });
-    
-    console.log(`Read ${rows.length} rows from CSV.`);
-    
-    // Pre-generate all QR codes first
-    await preGenerateQRCodes(rows);
-    
-    // Now process emails in batches
-    const batchSize = 5;
-    
-    for (let i = 0; i < rows.length; i += batchSize) {
-        const batch = rows.slice(i, i + batchSize);
-        console.log(`Processing batch ${Math.floor(i/batchSize) + 1} of ${Math.ceil(rows.length/batchSize)}...`);
-        
-        // Process each user in the batch
-        for (const row of batch) {
-            try {
-                const userEmail = row.email;
-                const username = row.username;
-                
-                // Check if QR code already exists to avoid regeneration
-                const qrCodePath = path.join(QR_CODE_DIR, `${userEmail}.png`);
-                if (!fs.existsSync(qrCodePath)) {
-                    const userData = JSON.stringify(row);
-                    const encryptedData = encryptData(userData);
-                    await generateQRCode(encryptedData, qrCodePath);
-                }
-                
-                // Send email with exponential backoff retry
-                await sendEmailWithRetry(userEmail, username, qrCodePath);
-                console.log(`Processed ${userEmail} successfully.`);
-                
-                // After each email, add a small delay
-                console.log(`Waiting 2 seconds before next email...`);
-                await sleep(2000); // Reduce from 5 to 2 seconds
-            } catch (error) {
-                console.error(`Error processing row: ${JSON.stringify(row)}`, error);
-            }
-        }
-        
-        // Add significant delay between batches
-        if (i + batchSize < rows.length) {
-            const delaySeconds = 15; // Reduce from 30 to 15 seconds
-            console.log(`Waiting ${delaySeconds} seconds before next batch...`);
-            await sleep(delaySeconds * 1000);
-        }
-    }
-    
-    console.log('CSV processing completed.');
-}
-
-// Add this retry function for email sending
-async function sendEmailWithRetry(email, username, qrCodePath, maxRetries = 5) {
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-            await sendEmail(email, username, qrCodePath);
-            return; // Success! Exit the retry loop
-        } catch (error) {
-            if (error.code === 'EAUTH' || 
-                error.responseCode === 454 || 
-                error.responseCode === 421 || 
-                (error.response && error.response.includes('Too many login attempts'))) {
-                
-                const delaySeconds = Math.pow(2, attempt + 1) * 30; // Exponential backoff
-                console.log(`Gmail rate limit hit. Retrying ${email} in ${delaySeconds} seconds... (Attempt ${attempt + 1}/${maxRetries})`);
-                await sleep(delaySeconds * 1000);
-            } else {
-                // For other errors, don't retry
-                throw error;
-            }
-        }
-    }
-    throw new Error(`Failed to send email to ${email} after ${maxRetries} retries`);
+// Helper function for delays
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // Generate QR Code
 async function generateQRCode(data, filePath) {
     try {
         await QRCode.toFile(filePath, data);
-        console.log(`QR code generated: ${filePath}`);
+        return true;
     } catch (error) {
         console.error('QR Code generation error:', error);
         throw error;
     }
 }
 
-// Modify your sendEmail function
-async function sendEmail(email, username, qrCodePath) {
+// Modified sendEmail function with retry logic
+async function sendEmailWithAttachments(email, username, qrCodePath, retryCount = 0) {
+    const transport = getTransporter();
     // HTML version of the email
     const emailContentHtml = `
 <!DOCTYPE html>
@@ -196,7 +108,7 @@ async function sendEmail(email, username, qrCodePath) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Your E-Ticket for Vishwaayan, 2025</title>
+    <title>Your E-Ticket for Aarambh, 2025</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -274,15 +186,7 @@ async function sendEmail(email, username, qrCodePath) {
             margin-left: 20px;
             padding-left: 0;
         }
-        .event-image {
-            text-align: center;
-            margin: 20px 0;
-        }
-        .event-image img {
-            max-width: 100%;
-            height: auto;
-        }
-        .day-highlight {
+        .highlight {
             font-weight: bold;
             color: #005f9e;
         }
@@ -291,52 +195,63 @@ async function sendEmail(email, username, qrCodePath) {
 <body>
     <div class="container">
         <div class="header">
-            <h1>Vishwaayan, 2025</h1>
+            <h1>Aarambh, 2025</h1>
             <p>Your Official E-Ticket</p>
         </div>
 
         <p>Dear <strong>${username}</strong>,</p>
 
-        <p>Thank you for registering for Vishwaayan 2025! We are thrilled to have you join us for this special celebration. Please find your e-ticket attached, including QR codes required for entry. Kindly note that the QR code is valid for a single scan only, meaning re-entry will not be permitted once you exit the premises.</p>
+        <p>Thank you for registering for Aarambh, 2025! We are excited to have you join us for this special event. Please find your e-ticket below, which includes a QR code required for entry. Please note the QR is valid for a single scan only.</p>
 
-        <p>The detailed programme schedule is also attached for your reference.</p>
+        <p><strong>Keeping this in mind, please note that the Student entering the premises of Building 1 will not be able to enter again if the Student has to take an exit from the Premises for any reason.</strong></p>
+
+        <div class="event-details">
+            <h3>📅 Event Details:</h3>
+            <ul>
+                <li><strong>Event Date:</strong> 9th Oct, 2025</li>
+                <li><strong>Entry Start Time:</strong> 12:30 PM</li>
+                <li><strong>Final Entry Time:</strong> 04:00 PM (entries will be closed after this)</li>
+                <li><strong>Venue:</strong> Behind Eco Campus, Vishwakarma University, Pune</li>
+            </ul>
+            <p>The detailed programme schedule has been attached to this email.</p>
+        </div>
 
         <div class="important-info">
             <h3>⚠️ Important Information:</h3>
             <ul>
-                <li><strong>QR Code Validity:</strong> Your QR code is valid for a single scan only. If you exit the premises, you will not be allowed to re-enter.</li>
-                <li><strong>Entry Guidelines:</strong> Please ensure you arrive on time.</li>
-                <li><strong>Mandatory Documents:</strong> You must present both your ID card and QR code at the entrance for a smooth check-in process.</li>
-                <li><strong>Self-Declaration Form:</strong> It is compulsory to carry a printed self-declaration form for entry. Without it, entry will not be permitted.</li>
+                <li>Your QR Code is valid for a single scan only. Once scanned, re-entry will not be permitted.</li>
+                <li>Please arrive on time, as entry closes at 4:00 PM. After this time, no further entry will be allowed, and no exceptions will be made.</li>
+                <li>You must present both your ID card and the attached QR code at the entrance for a smooth check-in process.</li>
             </ul>
         </div>
 
         <div class="dress-code">
-            <h3>👗 Dress Code for Vishwaayan:</h3>
-            
-            <p class="day-highlight">For Day 3 - "Tapestry of India"</p>
-            <p>Participants are expected to wear Sarees & Kurtas, celebrating the culture of India.</p>
-            
-            <p class="day-highlight">For Day 4 - "The Grand Gala"</p>
-            <p>The dress code is Suits & Gowns, embracing elegance and sophistication.</p>
-            
-            <p><strong>If, for any reason, you are unable to follow the dress code, decent wear is required. Entry will be denied to those who do not comply.</strong></p>
-            <p><strong>Everyone to comply with the guidelines attached herewith</strong></p>
-
-            <a href="https://docs.google.com/document/d/11S-lgVDa6SaTTWzVucVcl3sBfSGBAqFm/edit?usp=sharing&ouid=100602248617527026238&rtpof=true&sd=true" v>Attire Guidelines</a>
+            <h3>👗 Dress code for Aarambh:</h3>
+            <p><strong>Dress Code:</strong> Traditional attire.</p>
+            <p><strong>Theme Colors:</strong> Blue, Green, Red, Orange, Yellow, and White.</p>
+            <p>If, for some reason, you are unable to follow the dress code, please wear decent Ethnic Wear.</p>
+            <p><strong>If anyone does not follow the above guidelines, they will not be permitted to enter the premises of the event.</strong></p>
         </div>
 
-        <p>We can't wait to celebrate with you at Vishwaayan 2025! Get ready for an unforgettable experience filled with creativity, talent, and excitement.</p>
+        <div class="event-image">
+            <img src="cid:poster" alt="Aarambh 2025 Poster" style="max-width: 100%; height: auto; border-radius: 8px;">
+        </div>
 
-        <p><strong>See you there!</strong></p>
+        <p>Aarambh promises an unforgettable day filled with creativity, talent, and fun. We look forward to celebrating with you and the entire Vishwakarma University community.</p>
 
         <div class="contact">
             <h3>📞 Contact Information:</h3>
             <p>If you have any questions, please contact us at:</p>
-            <p><strong>Pratik Pawar:</strong> 9552524565</p>
-            <p><strong>Vidhi Bafna:</strong> 9172463623</p>
-            <p><strong>Dhruv Nahar:</strong> 9112424754</p>
+            <p><strong>Yash Jain:</strong> 83904 99943</p>
+            <p><strong>Sneha Ubale:</strong> 95453 43111</p>
+            <p><strong>Pratik Pawar:</strong> 9545456025</p>
         </div>
+
+        <p><strong>Please note that seating for the event will be done on "First Come First Serve Basis" and priority will be given to First Year students and Direct Second Year Students.</strong></p>
+
+        <p><strong>Don't miss the excitement of Aarambh. We can't wait to see you there!</strong></p>
+
+        <p><a href="https://docs.google.com/document/u/0/d/1GDkF39qdPuH8qoVhXwGwGzo5na2mdvMvJ9jtJGmFvjY/mobilebasic" style="color: #005f9e; text-decoration: none; font-weight: bold;">📄 Aarambh 2025 Terms and Conditions</a></p>
 
         <div class="warning">
             <h3>⚠️ Important Note:</h3>
@@ -365,34 +280,43 @@ async function sendEmail(email, username, qrCodePath) {
     // Keep the text version for email clients that don't support HTML
     const emailContentText = `Dear ${username},
 
-Thank you for registering for Vishwaayan 2025! We are thrilled to have you join us for this special celebration.
-Please find your e-ticket attached, including QR codes required for entry. Kindly note that the QR code is valid for a single scan only, meaning re-entry will not be permitted once you exit the premises.
+Thank you for registering for Aarambh, 2025! We are excited to have you join us for this special event. Please find your e-ticket below, which includes a QR code required for entry. Please note the QR is viable for a single scan only.
 
-The detailed programme schedule is also attached for your reference.
+Keeping this in mind, please note that the Student entering the premises of Building 1 will not be able to enter again if the Student has to take an exit from the Premises for any reason.
 
-Important Information: 
+Event Details:
+Event Date: 9th Oct, 2025
+Entry Start Time: 12:30 PM
+Final Entry Time: 04:00 PM (entries will be closed after this)
+Venue: Behind Eco Campus, Vishwakarma University, Pune
 
-QR Code Validity: Your QR code is valid for a single scan only. If you exit the premises, you will not be allowed to re-enter.
-Entry Guidelines: Please ensure you arrive on time.
-Mandatory Documents: You must present both your ID card and QR code at the entrance for a smooth check-in process.
-Self-Declaration Form: It is compulsory to carry a printed self-declaration form for entry. Without it, entry will not be permitted.
+The detailed programme schedule has been attached to this email.
 
-Dress Code for Vishwaayan:
+Important Information:
+- Your QR Code is valid for a single scan only. Once scanned, re-entry will not be permitted.
+- Please arrive on time, as entry closes at 4:00 PM. After this time, no further entry will be allowed, and no exceptions will be made.
+- You must present both your ID card and the attached QR code at the entrance for a smooth check-in process.
 
-For Day 3 - "Tapestry of India", participants are expected to wear Sarees & Kurtas, celebrating the culture of India.
+Dress code for Aarambh:
+Dress Code: Traditional attire.
+Theme Colors: Blue, Green, Red, Orange, Yellow, and White.
 
-For Day 4 - "The Grand Gala", the dress code is Suits & Gowns, embracing elegance and sophistication.
+If, for some reason, you are unable to follow the dress code, please wear decent Ethnic Wear.
 
-If, for any reason, you are unable to follow the dress code, decent wear is required. Entry will be denied to those who do not comply.
+If anyone does not follow the above guidelines, they will not be permitted to enter the premises of the event.
 
-We can't wait to celebrate with you at Vishwaayan 2025! Get ready for an unforgettable experience filled with creativity, talent, and excitement.
-
-See you there!
+Aarambh promises an unforgettable day filled with creativity, talent, and fun. We look forward to celebrating with you and the entire Vishwakarma University community.
 
 If you have any questions, please contact us at:
-Pratik Pawar : 9552524565
-Vidhi Bafna : 9172463623
-Dhruv Nahar : 9112424754
+Yash Jain: 83904 99943
+Sneha Ubale: 95453 43111
+Pratik Pawar: 9545456025
+
+Please note that seating for the event will be done on "First Come First Serve Basis" and priority will be given to First Year students and Direct Second Year Students.
+
+Don't miss the excitement of Aarambh. We can't wait to see you there!
+
+Aarambh 2025 Terms and Conditions: https://docs.google.com/document/u/0/d/1GDkF39qdPuH8qoVhXwGwGzo5na2mdvMvJ9jtJGmFvjY/mobilebasic
 
 Important Note:
 Students are reminded to refrain from engaging in Violence, Non-cooperation with authorities including organizers, use or the consumption of illicit substances, sloganeering, making sexist comments, or engaging in behaviour that may hurt religious sentiments, disrupt campus discipline, or create excessive noise with vehicles, speakers or any kind of devices in the University campus. Strict disciplinary actions thereby involving the respective department's HoDs will be taken against those found violating these guidelines.
@@ -409,31 +333,28 @@ Kondhwa (Bk.) Pune 411048`;
     const mailOptions = {
         from: EMAIL_CONFIG.auth.user,
         to: email,
-        subject: 'Your E-Ticket for Vishwaayan, 2025',
+        subject: 'Your E-Ticket for Aarambh, 2025',
         text: emailContentText,
         html: emailContentHtml,
         attachments: [
             {
-                filename: 'vishwaayan_ticket.png',
+                filename: 'aarambh_ticket.png',
                 path: qrCodePath
             },
             {
-                filename: 'Slider_Post_for_Vishwaayan_2025.pdf', // Program schedule PDF
-                path: './Slider_Post_for_Vishwaayan_2025.pdf'
+                filename: 'poster.png',
+                path: './poster.png',
+                cid: 'poster'
             },
             {
-                filename: 'theme_wise_outfits.docx', // Self-declaration form
-                path: './theme_wise_outfits.docx'
-            },
-            {
-                filename: 'signature1.jpg', // Path to your first signature image
+                filename: 'signature1.jpg',
                 path: './signature1.jpg',
-                cid: 'signature1' // Content ID for referencing in the HTML
+                cid: 'signature1'
             },
             {
-                filename: 'signature2.jpg', // Path to your second signature image
+                filename: 'signature2.jpg',
                 path: './signature2.jpg', 
-                cid: 'signature2' // Content ID for referencing in the HTML
+                cid: 'signature2'
             }
         ]
     };
@@ -442,8 +363,8 @@ Kondhwa (Bk.) Pune 411048`;
         // Check if files exist before sending
         const attachmentPaths = [
             qrCodePath,
-            './Slider_Post_for_Vishwaayan_2025.pdf',
-            './theme_wise_outfits.docx',
+            './Vishwayan Terms_and_Conditions.docx',
+            './poster.png',
             './signature1.jpg',
             './signature2.jpg'
         ];
@@ -454,28 +375,177 @@ Kondhwa (Bk.) Pune 411048`;
             }
         }
         
-        // Send email with promise and proper error handling
-        const info = await new Promise((resolve, reject) => {
-            transporter.sendMail(mailOptions, (error, info) => {
-                if (error) {
-                    reject(error);
-                } else if (!info) {
-                    reject(new Error("No response from mail server"));
-                } else {
-                    resolve(info);
-                }
-            });
-        });
+        await transport.sendMail(mailOptions);
+        return { success: true, email: email };
+    } catch (err) {
+        // Retry logic
+        if (retryCount < RETRY_ATTEMPTS) {
+            console.log(`⚠️  Retry [${retryCount + 1}/${RETRY_ATTEMPTS}] for ${email} in ${RETRY_DELAY / 1000}s... (${err.message})`);
+            await sleep(RETRY_DELAY);
+            return sendEmailWithAttachments(email, username, qrCodePath, retryCount + 1);
+        }
         
-        // Now info should never be undefined if we get here
-        console.log(`Email sent to ${email}: ${info.messageId || 'No message ID returned'}`);
-        return info;
-    } catch (error) {
-        console.error(`Email sending error for ${email}:`, error);
-        throw error;
+        console.error(`❌ Failed after ${RETRY_ATTEMPTS} attempts: ${email} - ${err.message}`);
+        return { success: false, email: email, error: err.message };
     }
 }
 
-// Start processing
-console.log('Starting to process CSV file...');
-processCSV();
+// Generate and send for a single user
+async function processUser(row, currentIndex, totalEmails) {
+    const phoneNo = row['phone_no'];
+    const email = row['email'];
+    const username = row['username'];
+    
+    if (!phoneNo || !email) {
+        console.error('Phone number or Email is undefined for row:', row);
+        return { success: false, email: row['email'] || 'unknown', error: 'Missing phone_no or email' };
+    }
+    
+    const qrCodePath = path.join(QR_CODE_DIR, `${phoneNo}.png`);
+    
+    try {
+        // Generate QR code if it doesn't exist
+        if (!fs.existsSync(qrCodePath)) {
+            const userData = JSON.stringify(row);
+            const encryptedData = encryptData(userData);
+            await generateQRCode(encryptedData, qrCodePath);
+            console.log(`📱 QR Code generated: ${phoneNo}.png`);
+        }
+        
+        // Send email with attachments
+        const result = await sendEmailWithAttachments(email, username, qrCodePath);
+        
+        // Live progress update immediately after sending
+        if (result.success) {
+            console.log(`✅ [${currentIndex}/${totalEmails}] Email sent successfully to: ${email} (${username})`);
+        } else {
+            console.log(`❌ [${currentIndex}/${totalEmails}] Failed to send email to: ${email} (${username})`);
+        }
+        
+        return result;
+    } catch (err) {
+        console.error(`❌ [${currentIndex}/${totalEmails}] Error processing ${phoneNo}:`, err.message);
+        return { success: false, email: email, error: err.message };
+    }
+}
+
+// Process emails in batches
+async function processBatch(batch, batchNumber, totalBatches, startIndex, totalEmails) {
+    console.log(`\n${'='.repeat(60)}`);
+    console.log(`📦 Processing Batch ${batchNumber}/${totalBatches} (${batch.length} emails)`);
+    console.log(`${'='.repeat(60)}`);
+    
+    const promises = batch.map((row, index) => {
+        const currentIndex = startIndex + index + 1;
+        return processUser(row, currentIndex, totalEmails);
+    });
+    
+    const results = await Promise.all(promises);
+    
+    return results;
+}
+
+// Main CSV processing function
+async function processCSV() {
+    console.log('🚀 Starting QR Code generation and email sending process...\n');
+    const startTime = Date.now();
+    
+    const rows = [];
+    
+    // Read CSV file
+    await new Promise((resolve, reject) => {
+        fs.createReadStream(CSV_FILE_PATH)
+            .pipe(csv())
+            .on('data', (data) => {
+                rows.push(data);
+            })
+            .on('end', resolve)
+            .on('error', reject);
+    });
+    
+    console.log(`📊 Total records found: ${rows.length}\n`);
+    
+    // Split into batches
+    const batches = [];
+    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+        batches.push(rows.slice(i, i + BATCH_SIZE));
+    }
+    
+    const totalBatches = batches.length;
+    console.log(`📦 Split into ${totalBatches} batches of ${BATCH_SIZE} emails each\n`);
+    
+    // Process batches
+    const allResults = [];
+    let successCount = 0;
+    let failureCount = 0;
+    
+    for (let i = 0; i < batches.length; i++) {
+        const startIndex = i * BATCH_SIZE;
+        const batchResults = await processBatch(batches[i], i + 1, totalBatches, startIndex, rows.length);
+        allResults.push(...batchResults);
+        
+        // Count successes and failures (without duplicate logging)
+        batchResults.forEach(result => {
+            if (result.success) {
+                successCount++;
+            } else {
+                failureCount++;
+            }
+        });
+        
+        // Progress summary after batch
+        const processed = Math.min((i + 1) * BATCH_SIZE, rows.length);
+        const percentage = ((processed / rows.length) * 100).toFixed(1);
+        const elapsed = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
+        
+        console.log(`\n${'─'.repeat(60)}`);
+        console.log(`📈 Batch ${i + 1} Complete | Overall Progress: ${processed}/${rows.length} (${percentage}%)`);
+        console.log(`✅ Success: ${successCount} | ❌ Failed: ${failureCount} | ⏱️ Time: ${elapsed} min`);
+        console.log(`${'─'.repeat(60)}`);
+        
+        // Delay between batches (except for the last batch)
+        if (i < batches.length - 1) {
+            console.log(`⏳ Waiting ${BATCH_DELAY / 1000} seconds before next batch...\n`);
+            await sleep(BATCH_DELAY);
+        }
+    }
+    
+    // Close transporter
+    if (transporter) {
+        transporter.close();
+    }
+    
+    // Final summary
+    const endTime = Date.now();
+    const duration = ((endTime - startTime) / 1000 / 60).toFixed(2);
+    
+    console.log('\n' + '='.repeat(60));
+    console.log('📊 FINAL REPORT');
+    console.log('='.repeat(60));
+    console.log(`✅ Successful: ${successCount}`);
+    console.log(`❌ Failed: ${failureCount}`);
+    console.log(`⏱️  Total time: ${duration} minutes`);
+    console.log(`📧 Average: ${(rows.length / (duration || 1)).toFixed(1)} emails/minute`);
+    console.log('='.repeat(60));
+    
+    // Log failed emails to file
+    const failedEmails = allResults.filter(r => !r.success);
+    if (failedEmails.length > 0) {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const logFile = path.join(LOGS_DIR, `failed_emails_${timestamp}.json`);
+        fs.writeFileSync(logFile, JSON.stringify(failedEmails, null, 2));
+        console.log(`\n📝 Failed emails logged to: ${logFile}`);
+    }
+    
+    console.log('\n✨ Process completed!\n');
+}
+
+// Main execution
+(async () => {
+    const isConnected = await verifyConnection();
+    if (isConnected) {
+        await processCSV();
+    } else {
+        process.exit(1);
+    }
+})();
