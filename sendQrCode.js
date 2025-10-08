@@ -392,13 +392,22 @@ Kondhwa (Bk.) Pune 411048`;
 
 // Generate and send for a single user
 async function processUser(row, currentIndex, totalEmails) {
-    const phoneNo = row['phone_no'];
-    const email = row['email'];
-    const username = row['username'];
+    // Normalize keys by removing quotes and trimming
+    const normalizedRow = {};
+    for (let key in row) {
+        const cleanKey = key.replace(/^['"]|['"]$/g, '').trim();
+        normalizedRow[cleanKey] = row[key];
+    }
+    
+    const phoneNo = normalizedRow['phone_no'];
+    const email = normalizedRow['email'];
+    const username = normalizedRow['username'];
     
     if (!phoneNo || !email) {
         console.error('Phone number or Email is undefined for row:', row);
-        return { success: false, email: row['email'] || 'unknown', error: 'Missing phone_no or email' };
+        console.error('Available keys:', Object.keys(row));
+        console.error('Normalized keys:', Object.keys(normalizedRow));
+        return { success: false, email: normalizedRow['email'] || 'unknown', error: 'Missing phone_no or email' };
     }
     
     const qrCodePath = path.join(QR_CODE_DIR, `${phoneNo}.png`);
@@ -406,7 +415,7 @@ async function processUser(row, currentIndex, totalEmails) {
     try {
         // Generate QR code if it doesn't exist
         if (!fs.existsSync(qrCodePath)) {
-            const userData = JSON.stringify(row);
+            const userData = JSON.stringify(normalizedRow);
             const encryptedData = encryptData(userData);
             await generateQRCode(encryptedData, qrCodePath);
             console.log(`📱 QR Code generated: ${phoneNo}.png`);
